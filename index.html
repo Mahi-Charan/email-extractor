@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Extractor</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5d6677;
+    --border: #d9dde5; --accent: #2563eb; --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e6e9ef; --muted: #9aa3b2;
+      --border: #2e3542; --accent: #4f8cff; --accent-text: #0b0e13;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  label { display: block; font-weight: 600; margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 220px; resize: vertical; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-monospace, Consolas, monospace;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  button, .file-btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=file] { display: none; }
+  #status { color: var(--muted); margin-left: auto; }
+  #output { min-height: 160px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Email Extractor</h1>
+  <p class="sub">Paste a page's HTML/JSP/JS source (right-click → View Page Source → Ctrl+A, Ctrl+C), then click Extract. Everything runs in your browser — nothing is uploaded.</p>
+
+  <div class="card">
+    <label for="input">Page source</label>
+    <textarea id="input" placeholder="Paste page source here..."></textarea>
+    <div class="row">
+      <button class="primary" id="extract">Extract emails</button>
+      <label class="file-btn" for="file" style="margin:0;font-weight:400">Open .txt / .html file</label>
+      <input type="file" id="file" accept=".txt,.html,.htm,.jsp,.js">
+      <button id="clear">Clear</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="output">Emails found</label>
+    <textarea id="output" readonly></textarea>
+    <div class="row">
+      <button id="copy" disabled>Copy all</button>
+      <button id="download" disabled>Download .txt</button>
+    </div>
+  </div>
+</main>
+
+<script>
+  // Same logic as extract_emails.py
+  const EMAIL_PATTERN = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}/g;
+
+  // JS/HTML source often contains retina-asset names like "logo@2x.png" or
+  // "icon@3x.svg" that match the email pattern - these aren't real emails.
+  const NON_EMAIL_EXTENSIONS = new Set([
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp",
+    "css", "js", "map", "json", "html", "htm", "xml", "txt",
+    "pdf", "woff", "woff2", "ttf", "eot", "otf",
+    "mp4", "mp3", "zip", "gz",
+  ]);
+
+  function extractEmails(text) {
+    const found = new Map();
+    for (const match of text.match(EMAIL_PATTERN) || []) {
+      const tld = match.split(".").pop().toLowerCase();
+      if (NON_EMAIL_EXTENSIONS.has(tld)) continue;
+      const key = match.toLowerCase();
+      if (!found.has(key)) found.set(key, match);
+    }
+    return [...found.values()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const input = $("input"), output = $("output"), status = $("status");
+
+  function run() {
+    const emails = extractEmails(input.value);
+    output.value = emails.join("\n");
+    status.textContent = emails.length
+      ? `Found ${emails.length} email address(es)`
+      : "No email addresses found.";
+    $("copy").disabled = $("download").disabled = !emails.length;
+  }
+
+  $("extract").onclick = run;
+  $("clear").onclick = () => { input.value = output.value = status.textContent = ""; $("copy").disabled = $("download").disabled = true; };
+
+  $("file").onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { input.value = reader.result; run(); };
+    reader.readAsText(f);
+    e.target.value = "";
+  };
+
+  $("copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(output.value); }
+    catch { output.select(); document.execCommand("copy"); }
+    status.textContent = "Copied to clipboard";
+  };
+
+  $("download").onclick = () => {
+    const blob = new Blob([output.value + "\n"], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "emails.txt";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+</script>
+</body>
+</html>
